@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import os
+import yaml
 
 def calculate_bearing(degree):
 # function from: https://gist.github.com/RobertSudwarts/acf8df23a16afdb5837f
@@ -11,7 +12,11 @@ def calculate_bearing(degree):
   ix = int(round(degree / (360. / len(dirs))))
   return dirs[ix % len(dirs)]
 
-base_path = "C:\\Users\\Lopap\\Documents\\Mavic3-Pictures\\Sensor_Test_2601"
+with open("paths.yaml") as f:
+    yaml_file = yaml.safe_load(f)
+
+base_path = yaml_file["src_path"]
+
 compass_files = os.listdir(base_path)
 
 
