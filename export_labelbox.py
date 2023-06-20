@@ -133,7 +133,7 @@ class labelbox_exporter:
 			combined_mask += np_frame
 
 		im = Image.fromarray(combined_mask.astype(np.uint8))
-		im.save(os.path.join(self.mask_save_path, base_file.replace(".JPG","_mask.png")))
+		im.save(os.path.join(self.mask_save_path, base_file.replace(".JPG",".png")))
 
 
 
