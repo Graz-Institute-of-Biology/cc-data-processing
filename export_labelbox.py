@@ -6,6 +6,8 @@ from matplotlib import pyplot as plt
 import cv2
 import numpy as np
 from PIL import Image
+import os
+import shutil
 
 class labelbox_exporter:
 
@@ -17,6 +19,7 @@ class labelbox_exporter:
 		self.headers = {'Authorization': self.lb_api_key}
 		self.lb_client = labelbox.Client(api_key = self.lb_api_key)
 		self.lb_project = self.lb_client.get_project(self.lb_project_id)
+		self.exported_images = []
 
 		self.export_params = {
 							"data_row_details": True,
@@ -63,6 +66,8 @@ class labelbox_exporter:
 
 		self.export_json = export_task.result
 
+		print(self.export_json)
+
 
 	def download_and_process_mask(self, original_name, objects, combine_masks):
 		mask_files = []
@@ -97,17 +102,20 @@ class labelbox_exporter:
 		for img in self.export_json:
 
 			if len(img['projects'][self.lb_project_id]['project_details']['workflow_history']) > 0:
-				last_action = img['projects'][self.lb_project_id]['project_details']['workflow_history'][0]['action']
+				# print(img['projects'][self.lb_project_id]['project_details']['workflow_history'][0]['action'])
+				# last_action = img['projects'][self.lb_project_id]['project_details']['workflow_history'][0]['action']
+				workflow_status = img['projects'][self.lb_project_id]['project_details']['workflow_status']
 			else:
 				continue
 
-			# check if image is APPROVED
-			if last_action == 'Approve':
+			# check if image workflow status is DONE
+			if workflow_status == 'DONE':
 				objects = img['projects'][self.lb_project_id]['labels'][0]['annotations']['objects']
 				original_name = img['data_row']['external_id']
-				if original_name.replace(".JPG","_mask.png") in self.saved_masks:
-					# print("File: {0} already processed".format(original_name))
-					# print("continueing...")
+				self.exported_images.append(original_name)
+				if original_name.replace(".JPG",".png") in self.saved_masks:
+					print("File: {0} already processed".format(original_name))
+					print("continueing...")
 					continue
 				else:
 					img_count += 1
@@ -120,6 +128,12 @@ class labelbox_exporter:
 		else:
 			print("{0} new mask(s) added".format(img_count))
 
+	def get_unique_values(self, mask_files):
+		
+		values = [np.unique(np.array(Image.open(mask))) for mask in mask_files]
+		flattened = [val for sublist in values for val in sublist]
+	
+		return np.unique(np.array(flattened))
 
 	def combine_and_save_mask(self, base_file, mask_files):
 
@@ -130,11 +144,25 @@ class labelbox_exporter:
 		for mask in mask_files:
 			im_frame = Image.open(mask)
 			np_frame = np.array(im_frame)
-			combined_mask += np_frame
+			label_positions = np_frame > 0
+			combined_mask[label_positions] = np_frame[label_positions]
+			# combined_mask += np_frame
 
 		im = Image.fromarray(combined_mask.astype(np.uint8))
 		im.save(os.path.join(self.mask_save_path, base_file.replace(".JPG",".png")))
 
+
+	def copy_related_images(self):
+
+
+		data_path = "C:\\Users\\faulhamm\\OneDrive - Universität Graz\\Dokumente\\Philipp\\Data"
+		dst = "C:\\Users\\faulhamm\\Documents\\Philipp\\training\\imgs"
+		for file in self.exported_images:
+			for dirpath, dirnames, filenames in os.walk(data_path):
+				for filename in [f for f in filenames if f.endswith(file)]:
+					src = os.path.join(dirpath, filename)
+					print("COPY: ", src)
+					shutil.copy2(src, dst)
 
 
 
@@ -143,4 +171,5 @@ if __name__ == "__main__":
 
 	exporter = labelbox_exporter()
 	exporter.get_export_json()
-	exporter.get_masks()
+	# exporter.get_masks()
+	# exporter.copy_related_images()

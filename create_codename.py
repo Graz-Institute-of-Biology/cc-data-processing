@@ -188,7 +188,7 @@ if __name__ == "__main__":
 
     base_path = load_path("paths.yaml")
 
-    # create_filename_information(base_path) 
-    change_height_abbreviation(base_path)
+    create_filename_information(base_path) 
+    # change_height_abbreviation(base_path)
 
 
