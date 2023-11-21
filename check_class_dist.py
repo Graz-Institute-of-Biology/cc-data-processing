@@ -46,11 +46,11 @@ with open(yaml_file) as f:
 			yaml_file = yaml.safe_load(f)
 			
 save_folder = yaml_file["save_folder"]
+mask_path_partial = yaml_file["mask_path_partial"]
 mask_save_path = os.path.join(save_folder, "combined_masks")
 
 mask_paths = os.listdir(mask_save_path)
 
-mask_path_partial = "C:\\Users\\faulhamm\\Documents\\Philipp\\training\\partial_masks\\1024"
 # mask_abs_paths = [os.path.join(mask_save_path, f) for f in mask_paths]
 mask_abs_paths = [os.path.join(mask_path_partial, f) for f in os.listdir(mask_path_partial)]
 
