@@ -118,10 +118,11 @@ if __name__ == "__main__":
 
     exporter = labelbox_exporter()
     exporter.get_export_json()
-    exporter.get_to_label_list()
+    exporter.assign_global_keys() # assign global keys using image names NO CHECK IF UNIQUE NAMES ARE USED
+    exporter.get_to_label_list() # get list of labelbox data rows with status "TO_LABEL"
 
     to_label_list = exporter.to_label_list
     client = exporter.lb_client
     project = exporter.lb_project
 
-    upload_masks(client, project, to_label_list, mask_folder)
+    upload_masks(client, project, to_label_list, mask_folder) # upload masks to data row with status "TO_LABEL"
