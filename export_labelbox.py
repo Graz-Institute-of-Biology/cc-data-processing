@@ -1,4 +1,5 @@
 import labelbox
+from labelbox.schema.bulk_import_request import BulkImportRequest
 import yaml
 import requests
 import os
@@ -8,6 +9,8 @@ import numpy as np
 from PIL import Image
 import os
 import shutil
+
+# workflow names: DONE, IN_REVIEW, IN_REWORK, TO_LABEL
 
 class labelbox_exporter:
 
@@ -53,6 +56,8 @@ class labelbox_exporter:
 		self.saved_masks = os.listdir(self.mask_save_path)
 		self.lb_api_key = yaml_file["api_key"]
 		self.lb_project_id = yaml_file["project_id"]
+		self.mask_folder = yaml_file["mask_folder"]
+
 
 
 	def get_export_json(self):
@@ -66,7 +71,7 @@ class labelbox_exporter:
 
 		self.export_json = export_task.result
 
-		print(self.export_json)
+		# print(self.export_json)
 
 
 	def download_and_process_mask(self, original_name, objects, combine_masks):
@@ -152,24 +157,44 @@ class labelbox_exporter:
 		im.save(os.path.join(self.mask_save_path, base_file.replace(".JPG",".png")))
 
 
-	def copy_related_images(self):
 
+	
+	def delete_imported_labels(self):
+		# imports = self.lb_client.get_bulk_import_requests()
+		for file_name in self.to_label_list:
+			data_row = self.lb_client.get_data_row_by_global_key(file_name)
+			print("DELETE: ", data_row.external_id)
+			data_row.delete()
 
-		data_path = "C:\\Users\\faulhamm\\OneDrive - Universität Graz\\Dokumente\\Philipp\\Data"
-		dst = "C:\\Users\\faulhamm\\Documents\\Philipp\\training\\imgs"
-		for file in self.exported_images:
-			for dirpath, dirnames, filenames in os.walk(data_path):
-				for filename in [f for f in filenames if f.endswith(file)]:
-					src = os.path.join(dirpath, filename)
-					print("COPY: ", src)
-					shutil.copy2(src, dst)
+	def get_to_label_list(self):
+		to_label_list = []
+		for img in self.export_json:
+			workflow_status = img['projects'][self.lb_project_id]['project_details']['workflow_status']
+			if workflow_status == "TO_LABEL":
+				to_label_list.append(img['data_row']['global_key'])
 
+		self.to_label_list = to_label_list
 
+	def assign_global_keys(self):
+		global_key_data_row_inputs = []
 
+		# print(self.export_json)
+		for img in self.export_json:
+			workflow_status = img['projects'][self.lb_project_id]['project_details']['workflow_status']
+			if not workflow_status == "DONE":
+				print(img['data_row']['external_id'])
+				global_key_data_row_inputs.append({"data_row_id": img['data_row']['id'], "global_key": img['data_row']['external_id']})
+
+		# print(global_key_data_row_inputs)
+		self.lb_client.assign_global_keys_to_data_rows(global_key_data_row_inputs)
 
 if __name__ == "__main__":
 
 	exporter = labelbox_exporter()
 	exporter.get_export_json()
+	# exporter.get_to_label_list()
+	# exporter.delete_imported_labels()
+	# exporter.assign_global_keys()
+
 	# exporter.get_masks()
 	# exporter.copy_related_images()
