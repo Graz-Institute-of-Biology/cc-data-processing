@@ -107,14 +107,6 @@ def upload_masks(client, project, to_label_list, mask_folder):
 
 
 if __name__ == "__main__":
-    with open("paths.yaml") as f:
-        yaml_file = yaml.safe_load(f)
-
-    data_path = yaml_file["data_path"]
-    mask_folder = yaml_file["mask_folder"]
-
-    with open("labelbox.yaml") as f:
-        yaml_file = yaml.safe_load(f)
 
     exporter = labelbox_exporter()
     exporter.get_export_json()
@@ -124,5 +116,6 @@ if __name__ == "__main__":
     to_label_list = exporter.to_label_list
     client = exporter.lb_client
     project = exporter.lb_project
+    mask_folder = exporter.mask_folder
 
     upload_masks(client, project, to_label_list, mask_folder) # upload masks to data row with status "TO_LABEL"
