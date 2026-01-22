@@ -7,6 +7,7 @@ from matplotlib.colors import ListedColormap, BoundaryNorm
 import matplotlib.patches as mpatches
 from PIL import ImageColor
 from tqdm import tqdm
+import json
 
 
 class_codes = {	"background" : 0,
@@ -18,6 +19,15 @@ class_codes = {	"background" : 0,
                 "barkdominated" : 6,
                 "cyanosbark" : 7,
                 "other" : 8,}
+
+class_dist = {	"liverwort" : 0,
+                "moss" : 0,
+                "cyanosliverwort" : 0,
+                "cyanosmoss" : 0,
+                "lichen" : 0,
+                "barkdominated" : 0,
+                "cyanosbark" : 0,
+                "other" : 0,}
 
 labels = list(class_codes.keys())
 colors_hex = ["#000000","#1cffbb", "#00bcff","#0059ff", "#2601d8", "#ff00c3", "#FF4A46", "#ff7500", "#928e00"]
@@ -43,8 +53,8 @@ def plot_img(img):
 
 yaml_file="labelbox.yaml"
 with open(yaml_file) as f:
-			yaml_file = yaml.safe_load(f)
-			
+    yaml_file = yaml.safe_load(f)
+    
 save_folder = yaml_file["save_folder"]
 mask_path_partial = yaml_file["mask_path_partial"]
 mask_save_path = os.path.join(save_folder, "combined_masks")
@@ -59,7 +69,7 @@ mask_abs_paths = [os.path.join(mask_path_partial, f) for f in os.listdir(mask_pa
 
 # print(np.unique(im))
 bins=[0,1,2,3,4,5,6,7,8]
-total_counts = np.zeros(len(class_codes.keys()), dtype=int)
+total_counts = np.zeros(len(class_codes.keys()), dtype=np.longlong)
 
 for mask in tqdm(mask_abs_paths):
     counts = np.zeros(len(class_codes.keys()), dtype=int)
@@ -71,12 +81,20 @@ for mask in tqdm(mask_abs_paths):
 
 colors_hex = ["#000000","#1cffbb", "#00bcff","#0059ff", "#2601d8", "#ff00c3", "#FF4A46", "#ff7500", "#928e00"]
 
-total_bins = sum(total_counts[1:])
+total_bins = sum(total_counts)
 fig, ax = plt.subplots(figsize=(12,6))
 fig.suptitle("Class distribution of CC [Image crops: {0}]".format(len(mask_abs_paths)))
 plt.ylim(0,100)
 plt.xlabel("Classes")
 plt.ylabel("Percentage of total pixels [%]")
-ax.bar(list(class_codes.keys())[1:], total_counts[1:]/total_bins*100, color=colors_hex[1:])
+ax.bar(list(class_codes.keys()), total_counts/total_bins*100, color=colors_hex)
 ax.bar_label(ax.containers[0], label_type='edge')
 plt.show()
+
+# # Update class_dist dictionary with the calculated class distributions
+# for i, label in enumerate(labels[1:]):
+#     class_dist[label] = total_counts[i+1] / total_bins
+
+# print(class_dist)
+# with open("dist.json", "w") as outfile: 
+#     json.dump(class_dist, outfile)
