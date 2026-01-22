@@ -1,2 +1,15 @@
 labelbox.yaml
+labelbox_gg.yaml
 paths.yaml
+
+*.png
+*.JPG
+*.csv
+*.yaml
+*.json
+*.xlsx
+*.pyc
+
+
+Tree_data/
+wandb/
