@@ -43,7 +43,7 @@ def convert_string_to_float(number_string):
     return converted
 
 def convert_direction_string(direction_string):
-    """ shift direction string to from range (-180, 180) to (0,360)
+    """ shift direction string from range (-180, 180) to (0,360)
 
     Args:
         direction_string (string): string from metadata
@@ -72,6 +72,15 @@ def convert_to_tree_direction(direction_drone):
         new_direction = direction_drone - 180
 
     return new_direction
+def get_img_meta(file_path):
+    results = {}
+    i = Image.open(file_path)
+    info = i._getexif()
+    for tag, value in info.items():
+        decoded = TAGS.get(tag, tag)
+        results[decoded] = value
+
+    return results, i
 
 def get_file_infos(file_path):
     """ returns date (Format: DDMMYY) and 
@@ -83,12 +92,8 @@ def get_file_infos(file_path):
     Returns:
         list: list including [date, gibalYawDegree]
     """
-    results = {}
-    i = Image.open(file_path)
-    info = i._getexif()
-    for tag, value in info.items():
-        decoded = TAGS.get(tag, tag)
-        results[decoded] = value
+
+    results, i = get_img_meta(file_path)
 
     date = "".join(results["DateTimeOriginal"].split(" ")[0][2:].split(":")[::-1])
     direction_string = i.getxmp()['xmpmeta']['RDF']['Description']['GimbalYawDegree']
