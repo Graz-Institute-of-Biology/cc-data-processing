@@ -1,10 +1,10 @@
-import os
-import time
-import shutil
-import exifread
+# import os
+# import time
+# import shutil
+# import exifread
 from PIL import Image
 from PIL.ExifTags import TAGS
-import yaml
+# import yaml
 
 def get_file_infos(file_path):
     """ returns date (Format: DDMMYY) and 
