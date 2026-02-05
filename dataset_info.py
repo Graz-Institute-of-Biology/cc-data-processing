@@ -20,8 +20,8 @@ class DatasetInfo:
                     'albumentations', 'scikit-image']
     
     def __init__(self, folder_path: str, description: str,
-                    ontology_file: str,
-                    wandb_project: str):
+                    ontology_file: str, wandb_project: str,
+                    num_images: int = None):
         """
         Initialize dataset info and compute metadata.
         
@@ -37,11 +37,13 @@ class DatasetInfo:
         self.description = description
         self.ontology_file = ontology_file
         self.wandb_project = wandb_project
-        
+        if num_images is not None:
+            self.num_original_images = num_images
+        else:
+            self.num_original_images = self._count_images(self.folder_path / 'imgs')
         # Auto-computed fields
         self.creation_date = datetime.now().isoformat()
         self.classes = self._get_classes_from_ontology()
-        self.num_original_images = self._count_images(self.folder_path / 'imgs')
         self.num_patches = self._count_images(self.folder_path / 'partial_images')
         self.patch_size = self._get_patch_size()
         self.version = self._get_version()
@@ -50,6 +52,7 @@ class DatasetInfo:
         self.code_version = self._get_git_commit()
         self.key_packages = self._get_key_packages()
         self._create_lib_snapshot()
+
         
     def _count_images(self, folder) -> int:
         """Count number of image patches."""
@@ -64,7 +67,7 @@ class DatasetInfo:
 
         if self.ontology_file == "ontology_atto.json":
             if int(major) >= 11:
-                forest_type = self.folder_path.name.split('_')[-2]
+                forest_type = self.folder_path.name.split('_')[3]
                 sub_type = "_" + forest_type
         else:
             sub_type = ""
@@ -131,9 +134,9 @@ class DatasetInfo:
                 versions[package] = "not installed"
         return versions
     
-    def to_dict(self) -> dict:
+    def to_dict(self,json_dump=False) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
+        meta_data = {
             'version': self.version,
             'description': self.description,
             'creation_date': self.creation_date,
@@ -144,14 +147,26 @@ class DatasetInfo:
             'images_hash': self.images_hash,
             'masks_hash': self.masks_hash,
             'code_version': self.code_version,
-            'key_packages': self.key_packages
+            'key_packages': self.key_packages,
+            'ontology_file': self.ontology_file,
+            'wandb_project': self.wandb_project,
         }
-    
+
+        if json_dump:
+            meta_data['logged_artifact'] = self.logged_artifact.name
+            meta_data['qualified_name'] = self.qualified_name
+
+        return meta_data
+
     def save_json(self) -> None:
         """Save dataset_info.json to dataset folder."""
         json_path = self.folder_path / 'dataset_info.json'
-        with open(json_path, 'w') as f:
-            json.dump(self.to_dict(), indent=2, fp=f)
+
+        if json_path.exists():
+            os.remove(json_path)
+
+        with open(json_path, 'x') as f:
+            json.dump(self.to_dict(json_dump=True), indent=2, fp=f)
         print(f"Saved dataset_info.json to {json_path}")
     
     def upload_to_wandb(self) -> None:
@@ -166,22 +181,26 @@ class DatasetInfo:
         )
         
         # add files
-        artifact.add_file(str(self.folder_path / 'dataset_info.json'))
         artifact.add_file(str(self.folder_path / 'lib_snapshot.txt'))
         
-        wandb.log_artifact(artifact)
+        self.logged_artifact = wandb.log_artifact(artifact)
+        self.logged_artifact.wait()
         wandb.finish()
         print(f"Uploaded {self.version} to WandB project '{self.wandb_project}'")
+
+        # after uploading store artifact qualified name 
+        self.qualified_name = self.logged_artifact.qualified_name
+
 
 
 if __name__ == '__main__':
     # Example usage for registering old datasets
     dataset_info = DatasetInfo(
-        folder_path=r'C:\Users\faulhamm\Documents\Philipp\training\datasets\ATTO\dataset_v11_1_C_split',
-        description='Terra Firme images split from combined data set.',
-        ontology_file="ontology_atto.json",
+        folder_path=r'C:\Users\faulhamm\Documents\Philipp\training\datasets\ATTO\dataset_v14_0_TF_nobg',
+        description='Terra Firme images, background identified by model: exp_f_mit_b5_10_bec88d; values set to (0,0,0).',
+        ontology_file="ontology_atto.json", # "atto", "fbground", "gg", "graz" , "graz_detailed"
         wandb_project='ATTO'
     )
     
-    dataset_info.save_json()
     dataset_info.upload_to_wandb()
+    dataset_info.save_json()
