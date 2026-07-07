@@ -1,8 +1,12 @@
 # ATTO Tree Surface-Area — Project Notes
 
 **Status (2026-07-07):** Terra Firme height model **done for now** (Chave-E, validated).
-Campinarana on an unvalidated placeholder. Crown still a placeholder. Next block of
-work gated on finding *independent* validation data.
+Campinarana now on a **local-calibrated Michaelis–Menten allometry** (anchored to
+Targhetta 2015 white-sand structure at the ATTO site; replaces the Feldpausch placeholder)
+with a **±13% stature band** folded into its surface area. Crown still a `1.5×`
+placeholder. Next: obtain raw local H–D pairs (ATTO/MAUA group) to upgrade the campinarana
+curve from summary-anchor to fitted, and a **cheap crown-share fallback** (Chambers
+whole-tree) — see §7.
 
 This is the **overview / status / next-steps** note. For the step-by-step method of the
 surface-area calculation see [`area_estimation.md`](area_estimation.md).
@@ -21,8 +25,10 @@ measurements** so the numbers can be trusted (and later fine-tuned).
 - Inventory: one row per tree, **DBH ≥ 20 cm**, **all stems** (live + dead) included.
 - Plot size: **20 × 60 m = 1200 m² = 0.12 ha**. Terra Firme = 9 plots (1.08 ha),
   Campinarana = 6 plots (0.72 ha).
-- Crown surface area is handled **separately by the partner group** (JKI / Waldlabor);
-  here it is a placeholder so totals are non-trivial.
+- Crown surface area is being derived **separately by the partner group** (JKI /
+  Waldlabor) from RGB imagery; here it is a `1.5×` placeholder. Because that route may be
+  slow, a cheap, independent **crown-share fallback** (via the Chambers whole-tree
+  allometry) is planned — see §7.
 
 **The pipeline:** `DBH → height (allometry) → stem surface area (truncated cone) →
 + crown (placeholder) → aggregate per plot / per forest / per hectare.`
@@ -55,6 +61,16 @@ Two candidates, both applied from DBH:
   `ln H = 0.893 − E + 0.760·lnD − 0.0340·(lnD)²`,
   with `E` = environmental-stress parameter sampled **per plot** from `E.nc`
   (bilinear). Sampled values: Terra Firme **E ≈ −0.1054**, Campinarana **E ≈ −0.1106**.
+- **Michaelis–Menten (Campinarana, local calibration)** — the campinarana model now used:
+  `H = Hmax·D / (b1 + D)`, with **Hmax = 24 m** (from the local ~22 m canopy ceiling) and
+  **b1 = 15.0** (pinned so `H(18 cm) = 13.1 m`, Targhetta 2015's community mean). MM was
+  the best-fit form for campinarana in the Roraima oligotrophic-forest H–D study, where
+  the white-sand asymptote is distinct from terra firme and pantropical curves overshoot
+  by up to ~106%. Unlike a log-linear curve it **flattens to a ceiling**, so even the
+  110 cm stem tops out at 21 m. See §5 for why this beats the alternatives.
+
+**Which model each forest uses:** Terra Firme → Chave-E; Campinarana → Michaelis–Menten
+(config `HEIGHT_MODEL` in `plot_area_estimation.py`).
 
 Related equations used in cross-checks:
 - Chave 2014 biomass: `AGB = 0.0673·(ρ·DBH²·H)^0.976` (kg; ρ = wood density g/cm³).
@@ -109,11 +125,28 @@ Related equations used in cross-checks:
 - **Region resolved: Guyana Shield**, not East-Central Amazonia (which under-predicts
   real heights by 32%).
 - **Terra Firme → Chave-E** (validated, ~unbiased). Stem SA rises +24% vs Feldpausch.
-- **Campinarana → kept on Feldpausch placeholder.** Applying Chave-E would push its mean
-  height to 25.2 m ≈ Terra Firme (26.2 m) — clearly wrong for a stunted white-sand forest.
-- **The 24% is the dominant uncertainty.** Chave-E reads ~+7% high, Feldpausch ~−8% low
-  vs measured heights, so the truth is between them; the height-model choice is a wider
-  band than any other assumption (taper, etc.).
+- **Campinarana → local-calibrated Michaelis–Menten** (replaces the Feldpausch
+  placeholder). Anchored to **Targhetta et al. 2015**, a campinarana inventory at the
+  Uatumã SDR *next to the ATTO tower* (same ATTO project): measured mean H **13.1 m**
+  (DBH ≥ 10 cm), canopy ceiling **~22 m**. Over our DBH ≥ 20 inventory the MM curve gives
+  **mean H 16.1 m, max 21.1 m** (≤ ceiling ✓); it recovers ~13 m over a simulated ≥ 10 cm
+  population. Why MM and not the others:
+  - **Chave-E** → mean 25.2 m, max 46 m: absurd for a stunted white-sand forest (E can't
+    separate the forests, so it just copies the Terra Firme curve).
+  - **Feldpausch placeholder** → mean 17.3 m but **max 32 m**: has no asymptote, so the
+    biggest stems become taller than any campinarana ever measured.
+  - **Woortmann 2018-style correction** (`H = 0.637·H_ChaveE`, one stature factor on the
+    terra-firme curve) → fixes the *mean* (16.1 m) but keeps the pantropical curvature, so
+    big stems still overshoot to **29 m**. Fine as a cross-check; MM (real ceiling) is the
+    keeper. (Woortmann applied their factor to the *biomass* eq, where an over-tall tail
+    matters less than it does for a per-tree height feeding a surface-area calc.)
+- **Campinarana stature band folded in: stem SA = 3,558 ± 454 m²/ha (±13%)**, from
+  recalibrating MM at Targhetta's 13.1 ± 2.6 m (ceiling held fixed). The old Feldpausch
+  placeholder (3,994 m²/ha) sits at the *high* edge of this band. Tighter than Terra
+  Firme's band because campinarana now has a local stature anchor.
+- **On Terra Firme the ~24% remains the dominant uncertainty.** Chave-E reads ~+7% high,
+  Feldpausch ~−8% low vs measured heights, so the truth is between them; the height-model
+  choice is a wider band than any other assumption (taper, etc.).
 - **Chambers magnitude match ≠ proof.** It confirms the right order of magnitude but
   **cannot referee Chave-E vs Feldpausch**, because (a) the crown 1.5× is a free knob that
   absorbs the difference, and (b) Chambers is > 10 cm DBH while the inventory is ≥ 20 cm
@@ -125,29 +158,57 @@ Related equations used in cross-checks:
 
 - **Crown = 1.5 × stem is a placeholder**, not a result (fixes crown share at 60% by
   construction). Partner group / Chambers allometry to replace it.
-- **Campinarana height is unvalidated** — no white-sand site exists in the harvest data.
+- **Campinarana curve rests on summary anchors, not raw pairs** — MM is calibrated to
+  Targhetta 2015's *published mean + ceiling*, not to individual H–D measurements. Sound
+  and validated against the ≥10 cm mean, but the clean upgrade is real local pairs (the
+  ATTO/MAUA group measured ~1,849 campinarana heights with DBH). Villa Zegarra 2017 (70
+  harvested campinarana trees, RDS Uatumã) and Woortmann 2018 would also serve — both
+  currently un-downloadable.
 - **Validation is not fully independent** — the Chave harvest trees overlap the data the
   Feldpausch/Chave models were trained on. It's a strong consistency check, not a clean
   out-of-sample test.
-- **Height-model uncertainty (~24%)** is currently un-propagated into the reported SA.
+- **Height-model uncertainty is now propagated for Campinarana (±13% band, §5) but not yet
+  for Terra Firme (~24%).**
 
 ---
 
 ## 7. Next steps (deferred — for a fresh session)
 
-1. **Find independent validation data** — local ATTO measured heights / LiDAR / TLS.
-   This is the gate: it's what turns the consistency check into a real test and lets us
-   fine-tune / choose between height models.
-2. **Chambers 2004 per-tree total-woody SA allometry** — get the exact coefficients
-   (whole-tree bark area from DBH, 315 felled central-Amazon trees). This is the real
-   referee: it constrains height **and** crown together and **replaces the 1.5× crown
-   placeholder**. Benchmark already known: 17–21k m²/ha (> 10 cm DBH).
-3. **A dedicated Campinarana (white-sand) height allometry** — the one genuine gap.
-4. *(Optional)* Add an **averaged / envelope** height option so the ~24% model
-   uncertainty is reported as a ± band rather than a single committed value.
+Ordered by leverage.
+
+1. **Get the raw campinarana H–D pairs from the ATTO/MAUA group** (Wittmann/Targhetta) —
+   they measured ~1,849 campinarana trees with paired DBH + clinometer height *at the ATTO
+   site*. This upgrades the MM curve from summary-anchor to a genuinely fitted local
+   allometry, and gives *independent* validation for the Terra Firme height too (the Chave
+   check leans on non-independent harvest data). Also worth: local TLS/LiDAR, or GEDI
+   canopy heights over the campinarana polygons as an independent ceiling check.
+2. **Campinarana height allometry — DONE (interim, 2026-07-07):** local-calibrated
+   Michaelis–Menten anchored to Targhetta 2015, with a ±13% stature band (§3, §5). Replace
+   with a fitted curve once the raw pairs from step 1 land.
+3. **Crown share via the Chambers 2004 whole-tree allometry** — a *wanted deliverable*,
+   not just validation: the partner team derives crown from RGB imagery but may be slow,
+   so we want a **cheap, defensible fallback**. Chambers gives total woody area
+   (bole **+ branches**) from DBH, so:
+   `crown ≈ Chambers_total(DBH) − frustum_trunk(DBH, H)`.
+   One allometry both validates the trunk and retires the fixed `1.5×`. Needs the exact
+   coefficients from the paper. Cleanest for Terra Firme (central-Amazon terra firme);
+   Campinarana crown stays an approximation.
+   - **Compatibility (good news):** the partner output is woody *crown-branch* area
+     (drone imagery + leaf-flush phenology tracking), **not** a leaf envelope — the same
+     quantity class as Chambers and our bark-surface trunk. Confirm when their data lands
+     whether it is a 2D *projected* branch area or a 3D reconstruction (SfM), since our
+     trunk / Chambers are 3D *surface* area (a projected→surface factor may be needed).
+   - **Local validation loop:** they can segment crown-branch area for *some plots where
+     we have DBH* — the local crown ground-truth we currently lack. So use the Chambers
+     share as the interim estimate, then validate / recalibrate it against their per-plot
+     data when it arrives (a locally-fitted crown share could replace the borrowed
+     Chambers one).
+4. *(Optional)* **Terra Firme height band** — do for TF what was done for Campinarana
+   (§5): report the ~24 % Chave-vs-Feldpausch height-model spread as a ± band rather than
+   a single committed value.
 5. *(Optional)* **Biomass forward check** — frustum volume × species-level wood density
    (inventory has `GEN`/`SPP`) vs Chave-2014 AGB. On Manaus, Chave AGB already reproduces
-   measured biomass to ~+5% median, so the reference is solid.
+   measured biomass to ~+5 % median, so the reference is solid.
 
 ---
 
@@ -174,4 +235,16 @@ Related equations used in cross-checks:
 - **Feldpausch et al. 2011**, *Biogeosciences* — regional height–diameter allometry.
 - **Chambers et al. 2004**, *Ecological Applications* 14:72–88 — whole-tree woody surface
   area from DBH (Amazon); benchmark 17–21k m²/ha. *(coefficients still to be retrieved)*
+- **Targhetta, Kesselmeier & Wittmann 2015**, *Folia Geobotanica* 50:185–205 — campinarana
+  (+ igapó) structure at the Uatumã SDR *next to the ATTO tower*: mean H 13.1 m, ceiling
+  ~22 m. The local anchor for the campinarana Michaelis–Menten curve. (PDF on disk:
+  OneDrive `…/03_Literature/s12224-015-9225-9.pdf`.)
+- **Roraima oligotrophic-forest H–D study** (*Modelos alométricos… florestas oligotróficas
+  do norte da Amazônia*, 2024, UFRR/PRONAT) — Michaelis–Menten best-fit for campinarana;
+  white-sand asymptote distinct from terra firme; pantropical curves overshoot by ≤106%.
+- **Woortmann et al. 2018**, *Acta Amazonica* 48:85–92 — campinarana biomass; dominant-
+  height correction of terra-firme equations (basis for the §5 Woortmann cross-check).
+- **Villa Zegarra 2017**, MSc dissertation INPA — 70 harvested campinarana trees at RDS
+  Uatumã with fitted D/H/biomass equations (target source for a fitted local curve;
+  currently un-downloadable).
 - **Global Wood Density Database** (Zanne/Chave 2009) — species-level wood density.

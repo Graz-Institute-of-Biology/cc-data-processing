@@ -34,12 +34,14 @@ PLOT_SIZE_M2 = 20 * 60      # confirmed: 20 x 60 m = 1200 m² per plot
 LIVE_ONLY = False           # confirmed: include all stems (status doesn't change estimates)
 TAPER = 0.7                 # top radius / bottom radius (specialist-set, fixed)
 
-# Height from DBH — two candidate models, validated in validate_height.py against
+# Height from DBH — candidate models, validated in validate_height.py against
 # real measured Amazon heights (Chave direct-harvest data):
 #   "chave": Chave et al. 2014 pantropical, H = exp(0.893 - E + 0.760 lnD - 0.0340 lnD^2),
 #            with E (environmental stress) sampled per plot from E.nc. Best fit to
 #            measured central/Guyana-Shield heights (bias +0.4 m, RMSE 3.4 m).
 #   "feld" : Feldpausch et al. 2011 regional, H = exp(b0 + b1 lnD + k).
+#   "mm"   : Michaelis-Menten H = Hmax*D/(b1+D), calibrated to LOCAL campinarana
+#            structure (see CAMPINARANA_MM). Campinarana only.
 # The Feldpausch b0 pair below is Guyana-Shield MOIST (TF) vs DRY (Caa) — but Dry/Moist/
 # Wet are PRECIPITATION classes, not forest types (both ATTO forests are Moist, ~2100-
 # 2400 mm/yr), so Caa=Dry is only a stand-in for the shorter campinarana stature.
@@ -48,13 +50,36 @@ PARAMS = {
     "Campinarana": dict(pos="Caa", b0=1.1064, b1=0.5002, k=0.0109, color="#e17c05"),
 }
 
+# Campinarana Michaelis-Menten H-D, calibrated to LOCAL white-sand structure.
+# Anchor: Targhetta, Kesselmeier & Wittmann (2015), Folia Geobot. 50:185-205 — a
+# campinarana inventory at the Uatuma SDR right next to the ATTO tower (same ATTO
+# project): measured mean H = 13.1 m (1,849 trees, DBH>=10 cm), canopy ceiling ~22 m.
+# Form H = Hmax*D/(b1+D): Michaelis-Menten was the best-fit form for campinarana in the
+# Roraima oligotrophic-forest H-D study (Modelos alometricos... florestas oligotroficas,
+# 2024), where campinarana's asymptote is distinct from (and far below) terra firme, and
+# general/pantropical curves overestimate white-sand height by up to ~106%. Hmax is set
+# from the local ceiling; b1 is pinned so H(D_ref) = H_ref (local community mean height
+# at its approx mean DBH). Validated: over a simulated >=10 cm reverse-J population this
+# recovers mean H ~13 m; over our DBH>=20 inventory mean ~16 m, max ~21 m (<= ceiling).
+# TUNE / REPLACE when local H-D pairs arrive (ATTO/MAUA group) or Villa Zegarra (2017) /
+# Woortmann et al. (2018) harvest data becomes available.
+CAMPINARANA_MM = dict(Hmax=24.0, D_ref=18.0, H_ref=13.1)
+_mm_b1 = CAMPINARANA_MM["Hmax"] * CAMPINARANA_MM["D_ref"] / CAMPINARANA_MM["H_ref"] \
+    - CAMPINARANA_MM["D_ref"]
+
+# Woortmann et al. (2018)-style correction of the terra-firme curve for comparison:
+# H_camp = WOORTMANN_F * H_chave(D). A single stature factor fixes the MEAN but keeps the
+# terra-firme curvature, so the largest trees still overshoot the campinarana ceiling
+# (that is exactly why "mm" — with a real asymptote — is preferred). F is pinned so the
+# scaled-Chave mean matches the "mm" mean over the campinarana inventory (set at runtime).
+WOORTMANN_F = None  # computed in the data loop
+
 # Height model driving each forest's surface area:
 #   Terra Firme -> "chave" (validated, ~unbiased vs real heights)
-#   Campinarana -> "feld"  (UNVALIDATED placeholder: no white-sand tree exists in the
-#     harvest data, and Chave-E can't separate it from TF because E is ~identical a few
-#     km apart; keeps the shorter-tree behaviour until a real campinarana allometry is
-#     sourced — see the deferred fresh-session todo.)
-HEIGHT_MODEL = {"Terra Firme": "chave", "Campinarana": "feld"}
+#   Campinarana -> "mm"    (calibrated to local Targhetta 2015 structure; replaces the
+#     earlier Feldpausch-Dry placeholder, which had no asymptote and pushed the largest
+#     stems to an unphysical ~32 m. "feld" and "woort" kept as comparison columns.)
+HEIGHT_MODEL = {"Terra Firme": "chave", "Campinarana": "mm"}
 
 # Chave (2014) E environmental-stress grid (2.5 arc-min ≈ 5 km), sampled bilinearly.
 E_NC = Path("Tree_data/ATTO/pantropical_allometry/pantropical_allometry/E.nc")
@@ -119,18 +144,29 @@ for name, p in PARAMS.items():
     d["r_bottom_cm"] = d["DBH"] / 2
     d["r_top_cm"] = TAPER * d["r_bottom_cm"]
 
-    # two candidate height models; HEIGHT_MODEL[name] selects the one used
+    # candidate height models; HEIGHT_MODEL[name] selects the one used
     d["H_feld"] = np.exp(p["b0"] + p["b1"] * np.log(d["DBH"]) + p["k"])
     d["H_chave"] = np.exp(0.893 - d["E"] + 0.760 * np.log(d["DBH"])
                           - 0.0340 * np.log(d["DBH"]) ** 2)
-    d["H_m"] = d["H_chave"] if HEIGHT_MODEL[name] == "chave" else d["H_feld"]
+    # Michaelis-Menten (campinarana, local calibration); harmless for TF (unused there)
+    d["H_mm"] = CAMPINARANA_MM["Hmax"] * d["DBH"] / (_mm_b1 + d["DBH"])
+    _sel = {"chave": "H_chave", "feld": "H_feld", "mm": "H_mm"}[HEIGHT_MODEL[name]]
+    d["H_m"] = d[_sel]
 
     # surface area under the selected model, plus a companion column per model
     d["SA_stem_m2"] = _stem_sa(d["H_m"], d["r_bottom_cm"], d["r_top_cm"])
     d["SA_stem_feld"] = _stem_sa(d["H_feld"], d["r_bottom_cm"], d["r_top_cm"])
     d["SA_stem_chave"] = _stem_sa(d["H_chave"], d["r_bottom_cm"], d["r_top_cm"])
+    d["SA_stem_mm"] = _stem_sa(d["H_mm"], d["r_bottom_cm"], d["r_top_cm"])
     d["BA_m2"] = np.pi * (d["DBH"] / 200) ** 2
     forests[name] = d
+
+# Woortmann et al. (2018)-style scaled-Chave comparison for campinarana: pin the stature
+# factor so its mean matches the calibrated MM mean over the inventory (see WOORTMANN_F).
+if "Campinarana" in forests:
+    _dc = forests["Campinarana"]
+    WOORTMANN_F = _dc["H_mm"].mean() / _dc["H_chave"].mean()
+    _dc["H_woort"] = WOORTMANN_F * _dc["H_chave"]
 
 names = list(forests.keys())
 colors = [PARAMS[n]["color"] for n in names]
@@ -155,8 +191,10 @@ def impact_report():
         d = forests[n]
         area_ha = n_plots[n] * PLOT_SIZE_M2 / 10_000
         for label, hcol, sacol in [("Feldpausch", "H_feld", "SA_stem_feld"),
-                                    ("Chave-E", "H_chave", "SA_stem_chave")]:
-            rows.append(dict(Forest=n, Height=label,
+                                    ("Chave-E", "H_chave", "SA_stem_chave"),
+                                    ("MM-local", "H_mm", "SA_stem_mm")]:
+            rows.append(dict(Forest=n, Height=label, Used=(HEIGHT_MODEL[n] ==
+                             {"H_feld": "feld", "H_chave": "chave", "H_mm": "mm"}[hcol]),
                              H_mean_m=round(d[hcol].mean(), 1),
                              SA_total_m2=round(d[sacol].sum()),
                              SA_m2_per_ha=round(d[sacol].sum() / area_ha)))
@@ -168,6 +206,79 @@ def impact_report():
         sc = forests[n]["SA_stem_chave"].sum()
         print(f"  {n:12s}: {sf:>8,.0f} -> {sc:>8,.0f} m²  ({100 * (sc / sf - 1):+5.1f}%)"
               f"   [pipeline uses: {HEIGHT_MODEL[n]}]")
+    campinarana_height_report()
+
+
+def campinarana_height_report():
+    """Campinarana height models vs the LOCAL anchor (Targhetta et al. 2015, Uatuma/ATTO:
+    mean H 13.1 m at DBH>=10 cm, canopy ceiling ~22 m). Shows why the calibrated
+    Michaelis-Menten ("mm") beats both the old Feldpausch placeholder and a Woortmann-
+    style single-factor correction of the terra-firme curve."""
+    if "Campinarana" not in forests:
+        return
+    d = forests["Campinarana"]
+    print("\n=== Campinarana height models vs local anchor "
+          "(Targhetta 2015: mean 13.1 m @>=10cm, ceiling ~22 m) ===")
+    print(f"  inventory: n={len(d)}, DBH {d['DBH'].min():.0f}-{d['DBH'].max():.0f} cm "
+          f"(mean {d['DBH'].mean():.1f}); note our threshold is DBH>=20 cm, so the mean "
+          f"H should sit ABOVE 13.1 m,\n  with the tallest stems still <= ~22 m ceiling.")
+    print(f"  Michaelis-Menten calibration: Hmax={CAMPINARANA_MM['Hmax']:.0f}, "
+          f"b1={_mm_b1:.2f}  |  Woortmann stature factor F={WOORTMANN_F:.3f}")
+    cols = [("Feldpausch (old placeholder)", "H_feld"),
+            ("Chave-E (terra-firme curve)", "H_chave"),
+            ("Michaelis-Menten (USED)", "H_mm"),
+            ("Woortmann scaled-Chave", "H_woort")]
+    print(f"  {'model':30s} {'mean':>6} {'p95':>6} {'max':>6}   ceiling check")
+    for label, c in cols:
+        h = d[c]
+        flag = "ok (<=22)" if h.max() <= 22.5 else f"OVERSHOOT (max {h.max():.0f} m)"
+        print(f"  {label:30s} {h.mean():6.1f} {h.quantile(0.95):6.1f} "
+              f"{h.max():6.1f}   {flag}")
+    campinarana_sa_band()
+
+
+# Targhetta et al. (2015) campinarana mean height and its spread (m), used to propagate
+# the stature (calibration) uncertainty into the reported campinarana surface area.
+TARGHETTA_MEAN_H, TARGHETTA_SD_H = 13.1, 2.6
+
+
+def campinarana_mm_height(dbh, h_ref, hmax=None, d_ref=None):
+    """Michaelis-Menten campinarana height for a given stature anchor h_ref (m).
+    hmax/d_ref default to the CAMPINARANA_MM calibration; b1 is re-derived from h_ref."""
+    hmax = CAMPINARANA_MM["Hmax"] if hmax is None else hmax
+    d_ref = CAMPINARANA_MM["D_ref"] if d_ref is None else d_ref
+    b1 = hmax * d_ref / h_ref - d_ref
+    return hmax * dbh / (b1 + dbh)
+
+
+def campinarana_sa_band():
+    """Fold the stature/height-model uncertainty into the campinarana stem-SA estimate.
+
+    Campinarana stature is the dominant unknown: the MM curve is calibrated to Targhetta
+    (2015)'s summary mean (13.1 +/- 2.6 m). Propagate that anchor spread by recalibrating
+    MM at h_ref = mean +/- SD (ceiling Hmax fixed — it is better constrained), giving a
+    low/central/high stem-SA band. Chave-E is excluded (fails the ~22 m ceiling); the old
+    Feldpausch placeholder is printed for reference."""
+    if "Campinarana" not in forests:
+        return
+    d = forests["Campinarana"]
+    area_ha = n_plots["Campinarana"] * PLOT_SIZE_M2 / 10_000
+
+    def sa_ha(h_ref):
+        H = campinarana_mm_height(d["DBH"], h_ref)
+        return _stem_sa(H, d["r_bottom_cm"], d["r_top_cm"]).sum() / area_ha, H.mean()
+
+    lo_h, ce_h, hi_h = (TARGHETTA_MEAN_H - TARGHETTA_SD_H, TARGHETTA_MEAN_H,
+                        TARGHETTA_MEAN_H + TARGHETTA_SD_H)
+    (lo, lo_mh), (ce, ce_mh), (hi, hi_mh) = sa_ha(lo_h), sa_ha(ce_h), sa_ha(hi_h)
+    feld = d["SA_stem_feld"].sum() / area_ha
+    half = (hi - lo) / 2
+    print("\n=== Campinarana stem-SA band (stature anchor 13.1 ± 2.6 m, Targhetta 2015) ===")
+    print(f"  low  (H_ref {lo_h:.1f} m, mean H {lo_mh:4.1f}): {lo:5,.0f} m²/ha")
+    print(f"  MID  (H_ref {ce_h:.1f} m, mean H {ce_mh:4.1f}): {ce:5,.0f} m²/ha  <- reported")
+    print(f"  high (H_ref {hi_h:.1f} m, mean H {hi_mh:4.1f}): {hi:5,.0f} m²/ha")
+    print(f"  => campinarana main-stem SA = {ce:,.0f} ± {half:,.0f} m²/ha "
+          f"(±{100*half/ce:.0f}%)   [Feldpausch placeholder ref: {feld:,.0f}]")
 
 
 # ============================================================ Fig 1: plot data
@@ -223,10 +334,18 @@ def fig_height():
             E = d["E"].median()
             hh = np.exp(0.893 - E + 0.760 * np.log(dd) - 0.0340 * np.log(dd) ** 2)
             lab = f"{n} — Chave-E"
+        elif HEIGHT_MODEL[n] == "mm":
+            hh = CAMPINARANA_MM["Hmax"] * dd / (_mm_b1 + dd)
+            lab = f"{n} — Michaelis-Menten (local)"
         else:
             hh = np.exp(p["b0"] + p["b1"] * np.log(dd) + p["k"])
             lab = f"{n} — Feldpausch"
         axc.plot(dd, hh, color=p["color"], lw=2.6, label=lab)
+    # local campinarana anchor (Targhetta et al. 2015, Uatuma/ATTO)
+    axc.axhline(22, color=PARAMS["Campinarana"]["color"], ls=":", lw=1.5, alpha=0.8)
+    axc.text(axc.get_xlim()[1], 22.3, "campinarana ceiling ~22 m (Targhetta 2015)",
+             ha="right", va="bottom", fontsize=8,
+             color=PARAMS["Campinarana"]["color"])
     axc.set_xlabel("DBH (cm)")
     axc.set_ylabel("Estimated height (m)")
     axc.set_title("Step 1 — Height from DBH (per-forest model)")
@@ -234,9 +353,10 @@ def fig_height():
     axc.grid(alpha=0.3)
     eqn = ("Terra Firme — Chave 2014:  "
            "$H=\\exp(0.893-E+0.760\\ln D-0.034\\ln^2\\! D)$\n"
-           "Campinarana — Feldpausch 2011:  "
-           "$H=\\exp(\\beta_0+\\beta_1\\ln D+\\kappa)$\n"
-           "E sampled per plot from E.nc · Caa = unvalidated placeholder")
+           "Campinarana — Michaelis–Menten:  "
+           f"$H=H_{{max}}\\,D/(b_1+D)$, $H_{{max}}={CAMPINARANA_MM['Hmax']:.0f}$, "
+           f"$b_1={_mm_b1:.1f}$\n"
+           "E per plot from E.nc · Caa MM calibrated to local Targhetta 2015 structure")
     axc.text(0.03, 0.97, eqn, transform=axc.transAxes, va="top", fontsize=8.5,
              bbox=dict(boxstyle="round", fc="white", ec="0.7"))
 
