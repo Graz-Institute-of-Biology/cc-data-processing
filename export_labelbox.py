@@ -8,12 +8,13 @@ import numpy as np
 from PIL import Image
 import os
 import shutil
+import time
 
 # workflow names: DONE, IN_REVIEW, IN_REWORK, TO_LABEL
 
 class labelbox_exporter:
 
-	def __init__(self, yaml_file, foreground_only=False) -> None:
+	def __init__(self, yaml_file, foreground_only=False, overwrite_masks=False) -> None:
 
 		self.yaml_file = yaml_file
 		self.load_yaml()
@@ -24,6 +25,7 @@ class labelbox_exporter:
 		print(self.lb_project.name)
 		self.exported_images = []
 		self.foreground_only = foreground_only
+		self.overwrite_masks = overwrite_masks
 
 		self.export_params = {
 							"data_row_details": True,
@@ -35,36 +37,6 @@ class labelbox_exporter:
 							"interpolated_frames": True
 							}
 
-		# if self.ontology == "atto":
-		# 	self.class_codes = {	"liverwort" : 1,
-		# 							"moss" : 2,
-		# 							"cyanosliverwort" : 3,
-		# 							"cyanosmoss" : 4,
-		# 							"lichen" : 5,
-		# 							"barkdominated" : 6,
-		# 							"cyanosbark" : 7,
-		# 							"other" : 8,}
-			
-		# elif self.ontology == "gg":
-		# 	self.class_codes = {	
-		# 							"cyano - dominated" : 1,
-		# 							"lichen" : 2,
-		# 							"moss" : 3,
-		# 							"vascular plants" : 4,
-		# 							"rock" : 5,
-		# 							"other" : 6,
-		# 							"fungi" : 7,
-		# 							"markers" : 8,
-		# 							"snow" : 9,}
-			
-		# elif self.ontology == "graz":
-		# 	self.class_codes = {
-		# 							"background" : 0,
-		# 							"bryophyte" : 1,
-		# 							"lichen" : 2,
-		# 							"barkdominated" : 3,
-		# 							"other" : 4,
-		# 	}
 		
 	def load_yaml(self):
 		"""load parameters (api key, project id, local save folder) from yaml file
@@ -129,7 +101,33 @@ class labelbox_exporter:
 		# print(self.export_json)
 
 
-	def download_and_process_mask(self, original_name, objects, combine_masks, exif_rot):
+	def fetch_mask(self, url, max_retries=3, backoff=2.0):
+		for attempt in range(max_retries):
+			try:
+				response = requests.get(url, headers=self.headers, stream=True, timeout=10)
+				response.raise_for_status()  # catches 4xx/5xx responses immediately
+
+				image_data = np.asarray(bytearray(response.content), dtype="uint8")
+				# response.content (not .raw.read()) buffers the full response safely
+
+				if image_data.size == 0:
+					raise ValueError("Empty response body")
+
+				image = cv2.imdecode(image_data, cv2.IMREAD_GRAYSCALE)
+
+				if image is None:
+					raise ValueError("cv2.imdecode returned None — likely corrupt image data")
+
+				return image
+
+			except (requests.RequestException, ValueError) as e:
+				print(f"Attempt {attempt + 1}/{max_retries} failed for {url}: {e}")
+				if attempt < max_retries - 1:
+					time.sleep(backoff * (attempt + 1))  # simple linear backoff
+				else:
+					raise RuntimeError(f"Failed to fetch mask after {max_retries} attempts: {url}") from e
+
+	def download_and_process_mask(self, original_name, objects, exif_rot):
 		mask_files = []
 		# iterate over all class masks (lichen, moss, etc)
 		object_count = 0
@@ -160,9 +158,11 @@ class labelbox_exporter:
 					break
 				
 			file_path = os.path.join(self.labelbox_mask_path, file_name)
-			response = requests.get(url, headers=self.headers, stream=True).raw
-			image = np.asarray(bytearray(response.read()), dtype="uint8")
-			image = cv2.imdecode(image, cv2.IMREAD_GRAYSCALE)
+			# response = requests.get(url, headers=self.headers, stream=True).raw
+			# image = np.asarray(bytearray(response.read()), dtype="uint8")
+			# image = cv2.imdecode(image, cv2.IMREAD_GRAYSCALE)
+
+			image = self.fetch_mask(url)
 			print("mask:", url)
 			mask = np.where(image == 255)
 			image[mask] = self.class_codes[label]
@@ -170,11 +170,14 @@ class labelbox_exporter:
 
 			mask_files.append(file_path)
 
-		if combine_masks:
+		if len(mask_files) == 0:
+			print("No mask files found for: ", original_name)
+		else:
+			print("Combining and saving mask for: ", original_name)
 			base_file = original_name
 			self.combine_and_save_mask(base_file, mask_files, exif_rot)
 
-	def get_masks(self, combine_masks=True):
+	def get_masks(self):
 		"""iterate over image infos from labelbox (stored in self.export_json)
 		get all class mask URLs for all APPROVED images
 		and then download and save masks as png to self.save_folder and combine
@@ -197,14 +200,18 @@ class labelbox_exporter:
 				exif_rot = int(img['media_attributes']['exif_rotation'])
 				original_name = img['data_row']['external_id']
 				self.exported_images.append(original_name)
-				if original_name.replace(".JPG",".png") in self.saved_masks:
+				mask_processed = original_name.replace(".JPG",".png") in self.saved_masks
+				if mask_processed and not self.overwrite_masks:
 					print("File: {0} already processed".format(original_name))
 					print("continueing...")
 					continue
 				else:
 					img_count += 1
-					print("Preparing new mask:", original_name)
-					self.download_and_process_mask(original_name, objects, combine_masks, exif_rot)
+					if mask_processed and self.overwrite_masks:
+						print("Overwriting existing mask for: ", original_name)
+					elif not mask_processed:
+						print("Preparing new mask:", original_name)
+					self.download_and_process_mask(original_name, objects, exif_rot)
 
 
 		if img_count == 0:
@@ -341,22 +348,31 @@ def assign_keys(exporter):
 if __name__ == "__main__":
 	# ATTO
 	# yaml_file = "labelbox.yaml"
+	# yaml_file = "labelbox_tf_increase.yaml"
 
 	# GROßGLOCKNER
-	# yaml_file = "labelbox_gg.yaml"
+	# 2024
+	yaml_file = "labelbox_gg.yaml"
 	# yaml_file = "labelbox_gg_june24.yaml"
 	# yaml_file = "labelbox_gg_july24.yaml"
 	# yaml_file = "labelbox_gg_august24.yaml"
 	# yaml_file = "labelbox_gg_september24.yaml"
 
+	# 2025
+	# yaml_file = "labelbox_gg_june25.yaml"
+	# yaml_file = "labelbox_gg_july0425.yaml"
+	# yaml_file = "labelbox_gg_july3025.yaml"
+	# yaml_file = "labelbox_gg_august2625.yaml"
+	yaml_file = "labelbox_gg_octobre1225.yaml"
+
 	# GRAZ
 	# yaml_file = "labelbox_graz.yaml"
 	# yaml_file = "labelbox_graz_june.yaml"
-    yaml_file = "labelbox_graz_sep.yaml"
+    # yaml_file = "labelbox_graz_sep.yaml"
 
-    exporter = labelbox_exporter(yaml_file=yaml_file, foreground_only=False)
+	exporter = labelbox_exporter(yaml_file=yaml_file, foreground_only=False, overwrite_masks=False)
 
-    download_completed_image_masks(exporter=exporter)
+	download_completed_image_masks(exporter=exporter)
 
 	# exporter.get_export_json()
 	# exporter.assign_global_keys()

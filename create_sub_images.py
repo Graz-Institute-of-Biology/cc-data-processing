@@ -33,7 +33,7 @@ def create_sub_img(img_data, mask_data, file_name, ending, image_month_extension
     # print(bbox)
 
     bbox_new = np.array(bbox)
-    shift = side
+    shift = int(side/4)
     if bbox[1] - shift > 0:
         bbox_new[1] = int(bbox[1] - shift)
     else:
@@ -119,14 +119,24 @@ def create_sub_img(img_data, mask_data, file_name, ending, image_month_extension
         plt.show()
 
 # ATTO
-yaml_file_name = "labelbox.yaml"
+# yaml_file_name = "labelbox.yaml"
+# yaml_file_name = "labelbox_tf_increase.yaml"
+yaml_file_name = "labelbox_tf_increase_less_bkg.yaml"
+
 
 # GROßGLOCKNER
-# yaml_file_name = "labelbox_gg.yaml"
+# 2024
 # yaml_file_name = "labelbox_gg_june24.yaml"
 # yaml_file_name = "labelbox_gg_july24.yaml"
 # yaml_file_name = "labelbox_gg_august24.yaml"
 # yaml_file_name = "labelbox_gg_september24.yaml"
+
+# 2025
+# yaml_file_name = "labelbox_gg_june25.yaml"
+# yaml_file_name = "labelbox_gg_july0425.yaml"
+# yaml_file_name = "labelbox_gg_july3025.yaml"
+# yaml_file_name = "labelbox_gg_august2625.yaml"
+# yaml_file_name = "labelbox_gg_octobre1225.yaml"
 
 # GRAZ
 # yaml_file_name = "labelbox_graz.yaml"
@@ -147,12 +157,13 @@ save_folder = yaml_file["save_folder"]
 img_folder = yaml_file["img_folder"]
 mask_save_path = os.path.join(save_folder, "combined_masks")
 
-if yaml_file["ontology"] == "gg":
-    image_month_extension = yaml_file_name.split("_")[2].split(".")[0] + "_"
-else:
-    image_month_extension = ""
+# if yaml_file["ontology"] == "gg":
+#     image_month_extension = yaml_file_name.split("_")[2].split(".")[0] + "_"
+# else:
 
-imgs = os.listdir(img_folder)
+image_month_extension = ""
+
+imgs = [ x for x in os.listdir(img_folder) if x.endswith('.JPG') or x.endswith('.jpg')]
 split_size = yaml_file["split_size"]
 
 for img in tqdm(imgs):

@@ -69,6 +69,8 @@ class DatasetInfo:
             if int(major) >= 11:
                 forest_type = self.folder_path.name.split('_')[3]
                 sub_type = "_" + forest_type
+            else:
+                sub_type = ""
         else:
             sub_type = ""
 
@@ -195,11 +197,15 @@ class DatasetInfo:
 
 if __name__ == '__main__':
     # Example usage for registering old datasets
+    # folder_path = r'C:\Users\faulhamm\Documents\Philipp\training\datasets\ATTO\dataset_v16_0_mixed_increased'
+    # folder_path = r'C:\Users\faulhamm\Documents\Philipp\training\datasets\ATTO\dataset_v0_0_mixed_debugging'
+    folder_path = r'C:\Users\faulhamm\Documents\Philipp\training\grossglockner\saved_datasets\dataset_v10_0_gg'
+
     dataset_info = DatasetInfo(
-        folder_path=r'C:\Users\faulhamm\Documents\Philipp\training\datasets\ATTO\dataset_v14_0_TF_nobg',
-        description='Terra Firme images, background identified by model: exp_f_mit_b5_10_bec88d; values set to (0,0,0).',
-        ontology_file="ontology_atto.json", # "atto", "fbground", "gg", "graz" , "graz_detailed"
-        wandb_project='ATTO'
+        folder_path=folder_path,
+        description='Increased dataset (211 original images) to increase validation set size',
+        ontology_file="ontology_gg.json", # "atto", "fbground", "gg", "graz" , "graz_detailed"
+        wandb_project='GG' # "ATTO", "GG", "fbground"
     )
     
     dataset_info.upload_to_wandb()
