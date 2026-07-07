@@ -10,35 +10,6 @@ import yaml
 import pandas as pd
 import uuid
 
-CLASS_DICT  =    {	    "Background" : 0,
-                        "Liverwort" : 1,
-                        "Moss" : 2,
-                        "CyanosLiverwort" : 3,
-                        "CyanosMoss" : 4,
-                        "Lichen" : 5,
-                        "BarkDominated" : 6,
-                        "CyanosBark" : 7,
-                        "Other" : 8,
-                    }
-
-CLASS_DICT_GG  =    {
-                        "Background" : 0,	
-                        "Cyano - dominated" : 1,
-                        "Lichen" : 2,
-                        "Moss" : 3,
-                        "Vascular plants" : 4,
-                        "Rock" : 5,
-                        "Other" : 6,
-                        "Fungi" : 7,
-                    }
-
-CLASS_DICT_GRAZ = {
-                        "background" : 0,
-                        "Bryophyte" : 1,
-                        "Lichen" : 2,
-                        "BarkDominated" : 3,
-                        "Other" : 4,
-                    }
 
 def upload_images(client, data_path):
 
@@ -282,6 +253,7 @@ if __name__ == "__main__":
 
     # ATTO
     # yaml_file = "labelbox.yaml"
+    # yaml_file = "labelbox_tf_increase.yaml"
 
     # GROßGLOCKNER
     # yaml_file = "labelbox_gg.yaml"
@@ -294,11 +266,14 @@ if __name__ == "__main__":
     # yaml_file = "labelbox_gg_july25.yaml"
     # yaml_file = "labelbox_gg_july3025.yaml"
     # yaml_file = "labelbox_gg_august2625.yaml"
+    # yaml_file = "labelbox_gg_october1225.yaml"
+
+    yaml_file = "labelbox_cc_october25.yaml" # cc = climate chamber
 
     # GRAZ
     # yaml_file = "labelbox_graz.yaml"
     # yaml_file = "labelbox_graz_june.yaml"
-    yaml_file = "labelbox_graz_sep.yaml"
+    # yaml_file = "labelbox_graz_sep.yaml"
 
     # delete_previous_labels = True
     if "gg_" in yaml_file:
@@ -306,11 +281,13 @@ if __name__ == "__main__":
     else:
         dataset_code = ""
 
-    # delete_imported_labels(yaml_file)
 
     # GLOBAL KEY STUFF
     print(dataset_code)
+
+    # delete_imported_labels(yaml_file)
+
     # clear_global_keys()
     # assign_global_keys(yaml_file, dataset_code=dataset_code) # assign global keys using image names NO CHECK IF UNIQUE NAMES ARE USED
     
-    upload_masks(yaml_file, dataset_code=dataset_code) # upload masks to data row with status "TO_LABEL"
+    upload_masks(yaml_file, dataset_code=dataset_code, remove_uploaded_mask=True) # upload masks to data row with status "TO_LABEL"
