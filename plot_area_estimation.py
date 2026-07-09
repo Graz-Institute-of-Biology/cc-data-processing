@@ -81,6 +81,16 @@ WOORTMANN_F = None  # computed in the data loop
 #     stems to an unphysical ~32 m. "feld" and "woort" kept as comparison columns.)
 HEIGHT_MODEL = {"Terra Firme": "chave", "Campinarana": "mm"}
 
+# Crown / total-woody surface area.
+#   "chambers"    -> total woody = Chambers 2004 A_s(DBH); crown = A_s - trunk frustum.
+#   "placeholder" -> crown = CROWN_PLACEHOLDER x stem (legacy; fixes crown share at 60%).
+# Terra Firme uses Chambers (validated: its implied crown/trunk ~1.38 vs the 1.5x guess,
+# total woody ~17.5k m²/ha inside the Chambers 17-21k benchmark). Campinarana stays on the
+# placeholder because Chambers is height-blind and over-predicts crown for stunted white-
+# sand trees (implied crown/trunk ~2.9) — see chambers_total_sa() caveat and crown_report().
+CROWN_PLACEHOLDER = 1.5
+CROWN_MODEL = {"Terra Firme": "chambers", "Campinarana": "placeholder"}
+
 # Chave (2014) E environmental-stress grid (2.5 arc-min ≈ 5 km), sampled bilinearly.
 E_NC = Path("Tree_data/ATTO/pantropical_allometry/pantropical_allometry/E.nc")
 
@@ -131,6 +141,25 @@ def _stem_sa(H_m, r_bottom_cm, r_top_cm):
     return H_m * np.pi * (r_bottom_cm / 100 + r_top_cm / 100)
 
 
+def chambers_total_sa(dbh_cm):
+    """Chambers et al. (2004, Ecol. Appl. 14:S72-S88), Eq. 10 — TOTAL woody surface area
+    (bole + branches, summed) as a function of DBH, for central-Amazon terra firme:
+
+        log10(A_s) = -0.105 - 0.686 L + 2.208 L^2 - 0.627 L^3,   L = log10(DBH cm)
+
+    A_s in m²; r²adj = 0.93, 315 harvested trees near Manaus. Applied over their inventory
+    it gives a stem area index of 1.7 (= 17,000 m²/ha, >10 cm DBH) — the field benchmark.
+    This is a cheap, independent estimate of total woody area (and, via A_s - trunk, of the
+    crown/branch share), replacing the arbitrary crown = 1.5x-stem placeholder.
+
+    CAVEAT: A_s depends on DBH ALONE (height-blind). It is derived on terra firme, so it is
+    only appropriate for Terra Firme here; for the stunted Campinarana it over-predicts
+    crown (a same-DBH white-sand tree is much shorter) and must be treated as an upper
+    bound, not adopted."""
+    L = np.log10(np.asarray(dbh_cm, float))
+    return 10 ** (-0.105 - 0.686 * L + 2.208 * L ** 2 - 0.627 * L ** 3)
+
+
 # ----------------------------------------------------------------------- data
 raw = pd.read_excel(XLSX)
 raw["E"] = sample_E(raw["LON"].values, raw["LAT"].values)   # Chave E per tree
@@ -159,6 +188,14 @@ for name, p in PARAMS.items():
     d["SA_stem_chave"] = _stem_sa(d["H_chave"], d["r_bottom_cm"], d["r_top_cm"])
     d["SA_stem_mm"] = _stem_sa(d["H_mm"], d["r_bottom_cm"], d["r_top_cm"])
     d["BA_m2"] = np.pi * (d["DBH"] / 200) ** 2
+
+    # crown / total woody: Chambers total (bole+branch) vs the 1.5x-stem placeholder
+    d["SA_total_chambers"] = chambers_total_sa(d["DBH"])
+    d["SA_crown_chambers"] = (d["SA_total_chambers"] - d["SA_stem_m2"]).clip(lower=0)
+    d["SA_crown_placeholder"] = CROWN_PLACEHOLDER * d["SA_stem_m2"]
+    d["SA_crown_m2"] = (d["SA_crown_chambers"] if CROWN_MODEL[name] == "chambers"
+                        else d["SA_crown_placeholder"])
+    d["SA_woody_m2"] = d["SA_stem_m2"] + d["SA_crown_m2"]   # trunk + crown (total woody)
     forests[name] = d
 
 # Woortmann et al. (2018)-style scaled-Chave comparison for campinarana: pin the stature
@@ -279,6 +316,67 @@ def campinarana_sa_band():
     print(f"  high (H_ref {hi_h:.1f} m, mean H {hi_mh:4.1f}): {hi:5,.0f} m²/ha")
     print(f"  => campinarana main-stem SA = {ce:,.0f} ± {half:,.0f} m²/ha "
           f"(±{100*half/ce:.0f}%)   [Feldpausch placeholder ref: {feld:,.0f}]")
+    crown_report()
+
+
+def crown_report():
+    """Crown / total-woody surface area: Chambers 2004 total-woody allometry vs the legacy
+    crown = 1.5x-stem placeholder. Chambers gives total woody (bole+branch) from DBH, so
+    crown = A_s - trunk. For Terra Firme (central-Amazon terra firme, where Chambers was
+    fit) this is a genuine independent estimate; for Campinarana it is height-blind and
+    over-predicts crown (upper bound only)."""
+    print("\n=== Crown / total-woody surface area: Chambers 2004 vs 1.5x placeholder ===")
+    print(f"  {'forest':12s} {'trunk/ha':>9} {'crown/tr':>9} {'total/ha':>9}   method")
+    for n in names:
+        d = forests[n]
+        area_ha = n_plots[n] * PLOT_SIZE_M2 / 10_000
+        trunk = d["SA_stem_m2"].sum()
+        ch_tot = d["SA_total_chambers"].sum()
+        ph_tot = (d["SA_stem_m2"] + d["SA_crown_placeholder"]).sum()
+        ch_ratio = (d["SA_crown_chambers"].sum()) / trunk
+        used = CROWN_MODEL[n]
+        print(f"  {n:12s} {trunk/area_ha:9,.0f}")
+        print(f"      Chambers total-woody : crown/trunk {ch_ratio:4.2f}  "
+              f"total {ch_tot/area_ha:6,.0f} /ha   [{'USED' if used=='chambers' else 'ref'}]")
+        print(f"      1.5x placeholder     : crown/trunk 1.50  "
+              f"total {ph_tot/area_ha:6,.0f} /ha   [{'USED' if used=='placeholder' else 'ref'}]")
+    print("  Terra Firme: Chambers crown/trunk ~1.38 ~= the 1.5x guess, total ~17.5k/ha "
+          "inside the 17-21k benchmark -> placeholder validated; Chambers adopted.")
+    print("  Campinarana: Chambers is height-blind (crown/trunk ~2.9 is implausible for a "
+          "stunted forest) -> kept on placeholder; crown remains the open approximation.")
+    terrafirme_height_band()
+
+
+# Height-model biases vs 523 measured Amazon heights (validate_height.py, pred - measured):
+# Chave-E +6.7% (high), Feldpausch Guyana-Moist -8.5% (low). They straddle the truth, so
+# the two models bracket a band and their midpoint is ~unbiased (-0.9%).
+TF_HEIGHT_BIAS = {"Chave-E": +0.067, "Feldpausch": -0.085}
+
+
+def terrafirme_height_band():
+    """Fold the height-MODEL uncertainty into the Terra Firme surface area. Unlike the
+    Campinarana stature band (one model, anchor uncertainty), TF's dominant uncertainty is
+    the model choice: Chave-E (used, validated best but ~+7% high) vs Feldpausch Guyana-
+    Moist (~-8% low). They straddle 523 measured heights, so they bracket the band and the
+    midpoint is ~unbiased. KEY: because TF total woody = Chambers A_s(DBH) is height-blind,
+    the height choice only moves the TRUNK/CROWN split — the total-woody number is invariant."""
+    if "Terra Firme" not in forests:
+        return
+    d = forests["Terra Firme"]
+    area_ha = n_plots["Terra Firme"] * PLOT_SIZE_M2 / 10_000
+    trunk_lo = d["SA_stem_feld"].sum() / area_ha      # Feldpausch (low)
+    trunk_hi = d["SA_stem_chave"].sum() / area_ha      # Chave-E (used, high)
+    mid = (trunk_lo + trunk_hi) / 2
+    half = (trunk_hi - trunk_lo) / 2
+    total = d["SA_total_chambers"].sum() / area_ha     # Chambers, height-invariant
+    print("\n=== Terra Firme height-model band (Feldpausch low <-> Chave-E high) ===")
+    print(f"  main-stem SA  Feldpausch (-8% low): {trunk_lo:6,.0f} m2/ha")
+    print(f"                Chave-E   (+7% high, USED): {trunk_hi:6,.0f} m2/ha")
+    print(f"  => least-biased midpoint = {mid:,.0f} +/- {half:,.0f} m2/ha (+/-{100*half/mid:.0f}%);"
+          f" Chave-E as used sits +{100*(trunk_hi/mid-1):.0f}% above it")
+    print(f"  Total woody is Chambers-pinned at {total:,.0f} m2/ha REGARDLESS of height model")
+    print(f"  (height only shifts the split: crown = {total-trunk_hi:,.0f}/ha at Chave-E "
+          f"vs {total-trunk_lo:,.0f}/ha at Feldpausch).")
 
 
 # ============================================================ Fig 1: plot data
@@ -557,6 +655,61 @@ def fig_bandwidth():
     return fig
 
 
+# ================================== Fig 6: crown / total woody (Chambers vs placeholder)
+def fig_crown():
+    """Total woody surface area per ha (trunk + crown): Chambers 2004 total-woody allometry
+    vs the legacy crown = 1.5x-stem placeholder, for both forests."""
+    fig, ax = plt.subplots(figsize=(11, 6))
+
+    # Chambers 2004 field benchmark (central-Amazon terra firme, >10 cm DBH)
+    ax.axhspan(17_000, 21_000, color="#4269d0", alpha=0.08, zorder=0)
+    ax.text(-0.45, 21_100, "Chambers 2004 benchmark 17–21k m²/ha (terra firme)",
+            ha="left", va="bottom", fontsize=8.5, color="#4269d0")
+
+    bar_w = 0.34
+    x = np.arange(len(names))
+    for i, n in enumerate(names):
+        d = forests[n]
+        area_ha = n_plots[n] * PLOT_SIZE_M2 / 10_000
+        trunk = d["SA_stem_m2"].sum() / area_ha
+        crown_ch = d["SA_crown_chambers"].sum() / area_ha
+        crown_ph = d["SA_crown_placeholder"].sum() / area_ha
+        col = PARAMS[n]["color"]
+        xc, xp = x[i] - bar_w / 2 - 0.02, x[i] + bar_w / 2 + 0.02
+        used_ch = CROWN_MODEL[n] == "chambers"
+        for xb, crown, hatch, tag in [(xc, crown_ch, "//", "Chambers"),
+                                      (xp, crown_ph, "..", "1.5×")]:
+            ax.bar(xb, trunk, bar_w, color=col, edgecolor="black", linewidth=0.8)
+            ax.bar(xb, crown, bar_w, bottom=trunk, color=col, alpha=0.4,
+                   hatch=hatch, edgecolor="black", linewidth=0.8)
+            is_used = (tag == "Chambers") == used_ch
+            ax.text(xb, trunk + crown, f"{tag}\n{trunk + crown:,.0f}"
+                    + ("\n(used)" if is_used else ""), ha="center", va="bottom",
+                    fontsize=8.5, fontweight="bold" if is_used else "normal")
+        ax.text(x[i], -1600, f"trunk {trunk:,.0f} m²/ha", ha="center", fontsize=8,
+                color="0.35")
+    ax.set_xticks(x)
+    ax.set_xticklabels(names)
+    ax.set_ylabel("Total woody surface area (m²/ha)")
+    ax.set_title("Step 4 — Crown / total woody: Chambers 2004 allometry vs 1.5× placeholder",
+                 fontsize=13, fontweight="bold")
+    ax.set_ylim(0, 24_000)
+    ax.grid(axis="y", alpha=0.3)
+    ax.legend(handles=[
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="0.5", markersize=12,
+               label="trunk frustum (Step 3)"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor="0.7", markersize=12,
+               label="crown — Chambers (//)  vs  1.5× placeholder (··)"),
+    ], frameon=False, loc="upper right")
+    fig.text(0.5, 0.005,
+             "Chambers is central-Amazon terra firme & DBH-only (height-blind): adopted for "
+             "Terra Firme (crown/trunk 1.38 ≈ 1.5); for Campinarana it over-predicts crown "
+             "(2.9) so the placeholder is kept.", ha="center", fontsize=8.5, color="0.4")
+    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    fig.savefig(OUTDIR / "fig6_crown.png")
+    return fig
+
+
 if __name__ == "__main__":
     impact_report()
     fig_plot_data()
@@ -564,5 +717,6 @@ if __name__ == "__main__":
     fig_geometry()
     fig_estimate()
     fig_bandwidth()
-    print(f"Saved 5 figures to {OUTDIR.resolve()}")
+    fig_crown()
+    print(f"Saved 6 figures to {OUTDIR.resolve()}")
     plt.show()
